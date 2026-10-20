@@ -47,9 +47,33 @@ public partial class MainViewModel : ObservableObject
             ? System.Windows.HorizontalAlignment.Left
             : System.Windows.HorizontalAlignment.Right;
 
+    public bool IsShortcutCategory => SelectedCategory?.Type == CategoryType.Shortcut;
+
+    public bool IsNoteCategory => SelectedCategory?.Type == CategoryType.Note;
+
+    public string NoteText
+    {
+        get => SelectedCategory?.Model.NoteText ?? string.Empty;
+        set
+        {
+            if (SelectedCategory == null || SelectedCategory.Model.NoteText == value)
+            {
+                return;
+            }
+
+            SelectedCategory.Model.NoteText = value;
+            Save();
+            OnPropertyChanged();
+        }
+    }
+
     partial void OnSelectedCategoryChanged(CategoryViewModel? value)
     {
         RefreshFilteredItems();
+        OnPropertyChanged(nameof(IsShortcutCategory));
+        OnPropertyChanged(nameof(IsNoteCategory));
+        OnPropertyChanged(nameof(NoteText));
+        AddItemsCommand.NotifyCanExecuteChanged();
     }
 
     partial void OnIsExpandedChanged(bool value)
@@ -107,7 +131,7 @@ public partial class MainViewModel : ObservableObject
         LaunchService.Open(item.Model);
     }
 
-    [RelayCommand]
+    [RelayCommand(CanExecute = nameof(CanAddItems))]
     private void AddItems()
     {
         var dialog = new AddItemsDialog();
@@ -120,6 +144,8 @@ public partial class MainViewModel : ObservableObject
         }
     }
 
+    private bool CanAddItems() => IsShortcutCategory;
+
     public void EditLaunchItem(LaunchItemViewModel item) => EditItem(item);
 
     public void DeleteLaunchItem(LaunchItemViewModel item) => DeleteItem(item);
@@ -130,7 +156,7 @@ public partial class MainViewModel : ObservableObject
 
     public void AddItemFromPath(string path, int insertIndex = -1)
     {
-        if (SelectedCategory == null)
+        if (SelectedCategory?.Type != CategoryType.Shortcut)
         {
             return;
         }
@@ -159,7 +185,7 @@ public partial class MainViewModel : ObservableObject
 
     public void MoveItem(string itemId, int insertIndex)
     {
-        if (SelectedCategory == null)
+        if (SelectedCategory?.Type != CategoryType.Shortcut)
         {
             return;
         }
@@ -247,12 +273,13 @@ public partial class MainViewModel : ObservableObject
     [RelayCommand]
     private void AddCategory()
     {
-        var dialog = new InputDialog("新建分类", "分类名称:", "新分类");
-        if (DialogHelper.ShowDialog(dialog) == true && !string.IsNullOrWhiteSpace(dialog.InputText))
+        var dialog = new AddCategoryDialog();
+        if (DialogHelper.ShowDialog(dialog) == true)
         {
             var category = new Category
             {
-                Name = dialog.InputText.Trim(),
+                Name = dialog.CategoryName.Trim(),
+                Type = dialog.CategoryType,
                 SortOrder = _data.Categories.Count
             };
             _data.Categories.Add(category);
@@ -288,7 +315,7 @@ public partial class MainViewModel : ObservableObject
         }
 
         var result = DialogHelper.ShowQuestion(
-            $"确定删除分类 \"{category.Name}\" 及其所有项目吗？");
+            $"确定删除分类 \"{category.Name}\" 及其所有内容吗？");
 
         if (result != MessageBoxResult.Yes)
         {

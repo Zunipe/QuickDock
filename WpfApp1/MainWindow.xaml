@@ -4,18 +4,18 @@
         xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
         xmlns:vm="clr-namespace:WpfApp1.ViewModels"
         xmlns:conv="clr-namespace:WpfApp1.Converters"
+        xmlns:views="clr-namespace:WpfApp1.Views"
         Title="QuickDock"
         Width="360" Height="480"
         WindowStyle="None"
         AllowsTransparency="True"
         Background="Transparent"
         Topmost="True"
-        ShowInTaskbar="True"
+        ShowInTaskbar="False"
         ResizeMode="CanResizeWithGrip">
 
     <Window.Resources>
         <conv:BoolToVisibilityConverter x:Key="BoolVis"/>
-        <conv:EmptyCollectionVisibilityConverter x:Key="EmptyVis"/>
     </Window.Resources>
 
     <Window.DataContext>
@@ -28,10 +28,7 @@
             BorderThickness="1"
             CornerRadius="12"
             ClipToBounds="True"
-            AllowDrop="True"
-            PreviewMouseLeftButtonDown="RootBorder_PreviewMouseLeftButtonDown"
-            Drop="RootBorder_Drop"
-            DragOver="RootBorder_DragOver">
+            PreviewMouseLeftButtonDown="RootBorder_PreviewMouseLeftButtonDown">
 
         <Grid>
             <Grid.RowDefinitions>
@@ -123,71 +120,13 @@
                             </Grid>
                         </Border>
 
-                        <!-- Items Grid -->
-                        <ScrollViewer Grid.Column="1"
-                                      x:Name="LaunchItemsScrollViewer"
-                                      VerticalScrollBarVisibility="Hidden"
-                                      HorizontalScrollBarVisibility="Disabled"
-                                      AllowDrop="True"
-                                      DragOver="LaunchItemsArea_DragOver"
-                                      Drop="LaunchItemsArea_Drop"
-                                      Padding="4">
-                            <ItemsControl x:Name="LaunchItemsControl"
-                                          ItemsSource="{Binding FilteredItems}">
-                                <ItemsControl.ItemsPanel>
-                                    <ItemsPanelTemplate>
-                                        <WrapPanel Orientation="Horizontal"/>
-                                    </ItemsPanelTemplate>
-                                </ItemsControl.ItemsPanel>
-                                <ItemsControl.ItemTemplate>
-                                    <DataTemplate>
-                                        <Border Style="{StaticResource LaunchItemCard}"
-                                                AllowDrop="True"
-                                                DragOver="ItemCard_DragOver"
-                                                Drop="ItemCard_Drop"
-                                                MouseLeftButtonDown="ItemCard_MouseLeftButtonDown"
-                                                MouseMove="ItemCard_MouseMove"
-                                                MouseLeftButtonUp="ItemCard_MouseLeftButtonUp"
-                                                Tag="{Binding}">
-                                            <Border.ContextMenu>
-                                                <ContextMenu Opened="ContextMenu_Opened">
-                                                    <MenuItem Header="修改名称和图标" Click="EditItemMenuItem_Click"/>
-                                                    <Separator/>
-                                                    <MenuItem Header="删除" Click="DeleteItemMenuItem_Click"/>
-                                                </ContextMenu>
-                                            </Border.ContextMenu>
-                                            <Grid>
-                                                <Grid.RowDefinitions>
-                                                    <RowDefinition Height="*"/>
-                                                    <RowDefinition Height="Auto"/>
-                                                </Grid.RowDefinitions>
-
-                                                <Image Source="{Binding Icon}" Width="40" Height="40"
-                                                       HorizontalAlignment="Center" VerticalAlignment="Center"/>
-
-                                                <TextBlock Grid.Row="1" Text="{Binding Name}"
-                                                           HorizontalAlignment="Center"
-                                                           TextAlignment="Center"
-                                                           TextTrimming="CharacterEllipsis"
-                                                           MaxWidth="80"
-                                                           FontSize="11"
-                                                           Foreground="{StaticResource TextSecondaryBrush}"
-                                                           Margin="4,4,4,6"/>
-                                            </Grid>
-                                        </Border>
-                                    </DataTemplate>
-                                </ItemsControl.ItemTemplate>
-                            </ItemsControl>
-                        </ScrollViewer>
-
-                        <!-- Empty state -->
-                        <TextBlock Grid.Column="1"
-                                   Text="拖拽文件/文件夹到此处&#x0a;或点击 ＋ 添加"
-                                   HorizontalAlignment="Center"
-                                   VerticalAlignment="Center"
-                                   TextAlignment="Center"
-                                   Foreground="{StaticResource TextSecondaryBrush}"
-                                   Visibility="{Binding FilteredItems, Converter={StaticResource EmptyVis}}"/>
+                        <!-- Category Content -->
+                        <Grid Grid.Column="1">
+                            <views:ShortcutCategoryView
+                                Visibility="{Binding IsShortcutCategory, Converter={StaticResource BoolVis}}"/>
+                            <views:NoteCategoryView
+                                Visibility="{Binding IsNoteCategory, Converter={StaticResource BoolVis}}"/>
+                        </Grid>
                     </Grid>
 
                     <!-- 边缘吸附收起时的细条指示（自由模式收起不显示） -->

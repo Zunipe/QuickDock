@@ -16,6 +16,8 @@ public partial class CategoryViewModel : ObservableObject
 
     public string Id => _category.Id;
 
+    public CategoryType Type => _category.Type;
+
     public string Name
     {
         get => _category.Name;

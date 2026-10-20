@@ -1,7 +1,9 @@
 using System.IO;
+using System.Runtime.InteropServices;
 using System.Windows;
 using System.Windows.Controls;
 using System.Windows.Input;
+using System.Windows.Interop;
 using System.Windows.Media;
 using WpfApp1.Models;
 using WpfApp1.Services;
@@ -16,12 +18,19 @@ public partial class MainWindow : Window
     private readonly EdgeSummonService _summonService = new();
     private bool _isDragging;
     private System.Windows.Point _dragStart;
-    private LaunchItemViewModel? _pendingItemDrag;
-    private System.Windows.Point _itemDragStart;
     private CategoryViewModel? _rightClickCategory;
 
     private const double ExpandedMinWidth = 310;
     private const double ExpandedMinHeight = 360;
+
+    [DllImport("user32.dll", SetLastError = true)]
+    private static extern int GetWindowLong(IntPtr hWnd, int nIndex);
+
+    [DllImport("user32.dll")]
+    private static extern int SetWindowLong(IntPtr hWnd, int nIndex, int dwNewLong);
+
+    private const int GWL_EXSTYLE = -20;
+    private const int WS_EX_TOOLWINDOW = 0x00000080;
 
     public MainWindow()
     {
@@ -50,6 +59,9 @@ public partial class MainWindow : Window
     private void MainWindow_Loaded(object sender, RoutedEventArgs e)
     {
         ApplySettings();
+        IntPtr hWnd = new WindowInteropHelper(this).Handle;
+        int exStyle = GetWindowLong(hWnd, GWL_EXSTYLE);
+        SetWindowLong(hWnd, GWL_EXSTYLE, exStyle | WS_EX_TOOLWINDOW);
 
         if (_viewModel.Settings.EnableEdgeSnap && _viewModel.Settings.SnapEdge != SnapEdge.None)
         {
@@ -225,7 +237,8 @@ public partial class MainWindow : Window
 
     private void CollapsedStrip_DragEnter(object sender, System.Windows.DragEventArgs e)
     {
-        if (e.Data.GetDataPresent(System.Windows.DataFormats.FileDrop))
+        if (_viewModel.IsShortcutCategory
+            && e.Data.GetDataPresent(System.Windows.DataFormats.FileDrop))
         {
             e.Effects = System.Windows.DragDropEffects.Copy;
             ExpandFromEdge();
@@ -240,7 +253,8 @@ public partial class MainWindow : Window
 
     private void CollapsedStrip_DragOver(object sender, System.Windows.DragEventArgs e)
     {
-        if (e.Data.GetDataPresent(System.Windows.DataFormats.FileDrop))
+        if (_viewModel.IsShortcutCategory
+            && e.Data.GetDataPresent(System.Windows.DataFormats.FileDrop))
         {
             e.Effects = System.Windows.DragDropEffects.Copy;
             if (!_viewModel.IsExpanded)
@@ -259,7 +273,22 @@ public partial class MainWindow : Window
     private void CollapsedStrip_Drop(object sender, System.Windows.DragEventArgs e)
     {
         ExpandFromEdge();
-        HandleItemsDrop(e, _viewModel.FilteredItems.Count);
+
+        if (e.Data.GetData(System.Windows.DataFormats.FileDrop) is not string[] files)
+        {
+            return;
+        }
+
+        var insertIndex = _viewModel.FilteredItems.Count;
+        foreach (var path in files)
+        {
+            if (File.Exists(path) || Directory.Exists(path))
+            {
+                _viewModel.AddItemFromPath(path, insertIndex++);
+            }
+        }
+
+        e.Handled = true;
     }
 
     private void CollapseToEdge()
@@ -405,230 +434,6 @@ public partial class MainWindow : Window
         }
     }
 
-    private void RootBorder_DragOver(object sender, System.Windows.DragEventArgs e)
-    {
-        if (IsInternalItemDrag(e) || e.Data.GetDataPresent(System.Windows.DataFormats.FileDrop))
-        {
-            e.Effects = IsInternalItemDrag(e)
-                ? System.Windows.DragDropEffects.Move
-                : System.Windows.DragDropEffects.Copy;
-        }
-        else
-        {
-            e.Effects = System.Windows.DragDropEffects.None;
-        }
-
-        e.Handled = true;
-    }
-
-    private void RootBorder_Drop(object sender, System.Windows.DragEventArgs e)
-    {
-        if (e.Handled)
-        {
-            return;
-        }
-
-        if (!e.Data.GetDataPresent(System.Windows.DataFormats.FileDrop))
-        {
-            return;
-        }
-
-        if (e.Data.GetData(System.Windows.DataFormats.FileDrop) is not string[] files)
-        {
-            return;
-        }
-
-        var insertIndex = _viewModel.FilteredItems.Count;
-        foreach (var path in files)
-        {
-            if (File.Exists(path) || Directory.Exists(path))
-            {
-                _viewModel.AddItemFromPath(path, insertIndex);
-                insertIndex++;
-            }
-        }
-
-        e.Handled = true;
-    }
-
-    private void LaunchItemsArea_DragOver(object sender, System.Windows.DragEventArgs e)
-    {
-        UpdateItemsDragEffects(e);
-        e.Handled = true;
-    }
-
-    private void LaunchItemsArea_Drop(object sender, System.Windows.DragEventArgs e)
-    {
-        var insertIndex = ItemDragDropHelper.GetInsertIndexFromItemsControl(
-            LaunchItemsControl,
-            e.GetPosition(LaunchItemsControl));
-        HandleItemsDrop(e, insertIndex);
-    }
-
-    private void ItemCard_DragOver(object sender, System.Windows.DragEventArgs e)
-    {
-        UpdateItemsDragEffects(e);
-        e.Handled = true;
-    }
-
-    private void ItemCard_Drop(object sender, System.Windows.DragEventArgs e)
-    {
-        if (sender is not FrameworkElement { Tag: LaunchItemViewModel targetItem } targetElement)
-        {
-            return;
-        }
-
-        var itemIndex = _viewModel.FilteredItems.IndexOf(targetItem);
-        if (itemIndex < 0)
-        {
-            return;
-        }
-
-        var insertIndex = ItemDragDropHelper.GetInsertIndexRelativeToItem(
-            itemIndex,
-            e.GetPosition(targetElement),
-            targetElement.ActualWidth);
-        HandleItemsDrop(e, insertIndex);
-    }
-
-    private void HandleItemsDrop(System.Windows.DragEventArgs e, int insertIndex)
-    {
-        if (IsInternalItemDrag(e)
-            && e.Data.GetData(ItemDragDropFormats.LaunchItemId) is string itemId
-            && !string.IsNullOrEmpty(itemId))
-        {
-            _viewModel.MoveItem(itemId, insertIndex);
-            e.Handled = true;
-            return;
-        }
-
-        if (!e.Data.GetDataPresent(System.Windows.DataFormats.FileDrop))
-        {
-            return;
-        }
-
-        if (e.Data.GetData(System.Windows.DataFormats.FileDrop) is not string[] files)
-        {
-            return;
-        }
-
-        var nextIndex = insertIndex;
-        foreach (var path in files)
-        {
-            if (File.Exists(path) || Directory.Exists(path))
-            {
-                _viewModel.AddItemFromPath(path, nextIndex);
-                nextIndex++;
-            }
-        }
-
-        e.Handled = true;
-    }
-
-    private static void UpdateItemsDragEffects(System.Windows.DragEventArgs e)
-    {
-        if (IsInternalItemDrag(e))
-        {
-            e.Effects = System.Windows.DragDropEffects.Move;
-        }
-        else if (e.Data.GetDataPresent(System.Windows.DataFormats.FileDrop))
-        {
-            e.Effects = System.Windows.DragDropEffects.Copy;
-        }
-        else
-        {
-            e.Effects = System.Windows.DragDropEffects.None;
-        }
-    }
-
-    private static bool IsInternalItemDrag(System.Windows.DragEventArgs e)
-    {
-        return e.Data.GetDataPresent(ItemDragDropFormats.LaunchItemId);
-    }
-
-    private void ItemCard_MouseLeftButtonDown(object sender, MouseButtonEventArgs e)
-    {
-        if (sender is not FrameworkElement { Tag: LaunchItemViewModel item })
-        {
-            return;
-        }
-
-        if (e.ClickCount == 2)
-        {
-            _pendingItemDrag = null;
-            e.Handled = true;
-            LaunchService.Open(item.Model);
-            return;
-        }
-
-        _pendingItemDrag = item;
-        _itemDragStart = e.GetPosition(null);
-
-        if (sender is UIElement element)
-        {
-            element.CaptureMouse();
-        }
-    }
-
-    private void ItemCard_MouseMove(object sender, System.Windows.Input.MouseEventArgs e)
-    {
-        if (_pendingItemDrag == null || e.LeftButton != MouseButtonState.Pressed)
-        {
-            return;
-        }
-
-        var position = e.GetPosition(null);
-        if (!HasExceededDragThreshold(_itemDragStart, position))
-        {
-            return;
-        }
-
-        var item = _pendingItemDrag;
-        _pendingItemDrag = null;
-
-        if (sender is UIElement element && element.IsMouseCaptured)
-        {
-            element.ReleaseMouseCapture();
-        }
-
-        if (sender is not DependencyObject source)
-        {
-            return;
-        }
-
-        var data = new DataObject();
-        data.SetData(ItemDragDropFormats.LaunchItemId, item.Id);
-
-        if (string.IsNullOrWhiteSpace(item.Path)
-            || (!File.Exists(item.Path) && !Directory.Exists(item.Path)))
-        {
-            DragDrop.DoDragDrop(source, data, DragDropEffects.Move);
-            return;
-        }
-
-        data.SetData(DataFormats.FileDrop, new[] { item.Path });
-        DragDrop.DoDragDrop(
-            source,
-            data,
-            DragDropEffects.Move | DragDropEffects.Copy | DragDropEffects.Link);
-    }
-
-    private void ItemCard_MouseLeftButtonUp(object sender, MouseButtonEventArgs e)
-    {
-        _pendingItemDrag = null;
-
-        if (sender is UIElement element && element.IsMouseCaptured)
-        {
-            element.ReleaseMouseCapture();
-        }
-    }
-
-    private static bool HasExceededDragThreshold(System.Windows.Point start, System.Windows.Point current)
-    {
-        return Math.Abs(current.X - start.X) >= SystemParameters.MinimumHorizontalDragDistance
-            || Math.Abs(current.Y - start.Y) >= SystemParameters.MinimumVerticalDragDistance;
-    }
-
     private void ContextMenu_Opened(object sender, RoutedEventArgs e)
     {
         if (sender is not System.Windows.Controls.ContextMenu menu)
@@ -662,22 +467,6 @@ public partial class MainWindow : Window
     private static T? FindVisualParent<T>(DependencyObject? child) where T : DependencyObject
     {
         return ItemDragDropHelper.FindVisualParent<T>(child);
-    }
-
-    private void EditItemMenuItem_Click(object sender, RoutedEventArgs e)
-    {
-        if (GetContextMenuTarget(sender) is LaunchItemViewModel item)
-        {
-            _viewModel.EditLaunchItem(item);
-        }
-    }
-
-    private void DeleteItemMenuItem_Click(object sender, RoutedEventArgs e)
-    {
-        if (GetContextMenuTarget(sender) is LaunchItemViewModel item)
-        {
-            _viewModel.DeleteLaunchItem(item);
-        }
     }
 
     private void RenameCategoryMenuItem_Click(object sender, RoutedEventArgs e)
